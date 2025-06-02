@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import backend as bk    
 
 st.set_page_config(page_title="Sistema de Academia Senai", layout="wide")
@@ -19,14 +18,22 @@ def front_end():
 
     st.divider()
 #----------------------------------------pergunta 1---------------------------------------------------#
+    col1, col2 = st.columns(2)
+    with col1:
+        st.header("Mostrando Clientes por plano")
+        plano = st.selectbox('Nome plano:', bk.df_planos['nome'])
+        df_filtro_planos = bk.clientes_planos(plano)
+        st.dataframe(df_filtro_planos)
 
-    st.header("Mostrando Clientes por plano")
-    plano = st.selectbox('Nome plano:', bk.df_planos['nome'])
-    df_filtro_planos = bk.clientes_planos(plano)
-    st.dataframe(df_filtro_planos)
+    with col2:
+        st.subheader("📊 Clientes por Plano")
+        fig = bk.grafico_clientes_por_plano()
+        if isinstance(fig, str):
+            st.warning(fig)
+        else:
+            st.pyplot(fig)
 
     st.divider()
-
 
 #----------------------------------------pergunta 2---------------------------------------------------#
     st.subheader("2 Treinos")
@@ -45,53 +52,66 @@ def front_end():
 
         st.dataframe(df_filtrado, use_container_width=True)
 
-
+    st.divider()
 #----------------------------------------pergunta 3---------------------------------------------------#
-    # --- Execução ---
+   # --- Execução ---
     df_pagamentos = bk.carregar_pagamentos()
-    df_resumo = bk.calcular_resumo_pagamentos(df_pagamentos)
+    conn = bk.get_connection()
+    df_clientes = bk.get_clientes()
+    conn.close()
+
+    df_resumo = bk.calcular_resumo_pagamentos(df_pagamentos, df_clientes)
+
+    # Converte 'ultimo_pagamento' para string apenas com data (DD/MM/YYYY),
+    # preenchendo com texto vazio se for NaT
+    df_para_exibir = df_resumo.copy()
+    df_para_exibir["ultimo_pagamento"] = (
+        df_para_exibir["ultimo_pagamento"]
+        .dt.strftime("%d/%m/%Y")
+        .fillna("")
+    )
+
+    st.subheader("🔍 Filtrar por Cliente")
+
+    # Selectbox com nome visível, mas retorna o ID
+    cliente_id = st.selectbox(
+        "Selecione o Cliente",
+        df_resumo["cliente_id"],
+        format_func=lambda x: df_resumo[df_resumo["cliente_id"] == x]["cliente_nome"].values[0]
+    )
+
+    cliente = df_resumo[df_resumo["cliente_id"] == cliente_id].iloc[0]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(label="Nome", value=cliente["cliente_nome"])
+    col2.metric(label="Cliente ID", value=str(cliente_id))
+    col3.metric(label="Total Pago", value=f"R$ {cliente['total_pago']:,.2f}")
+    if pd.isna(cliente["ultimo_pagamento"]):
+        col4.metric(label="Último Pagamento", value="—")
+    else:
+        data_str = cliente["ultimo_pagamento"].date().strftime("%d/%m/%Y")
+        col4.metric(label="Último Pagamento", value=data_str)
 
     # --- Exibição ---
     st.subheader("📋 3 Pagamentos por Cliente")
-    st.dataframe(df_resumo.sort_values("cliente_id"), use_container_width=True)
-
-    # --- Filtro individual ---
-    st.subheader("🔍 Filtrar por Cliente")
-    cliente_id = st.selectbox("Selecione o Cliente ID", df_resumo["cliente_id"].unique())
-
-    cliente = df_resumo[df_resumo["cliente_id"] == cliente_id].iloc[0]
-    st.markdown(f"""
-    - **Cliente ID:** `{cliente_id}`  
-    - **Total Pago:** `R$ {cliente['total_pago']:,.2f}`  
-    - **Último Pagamento:** `{cliente['ultimo_pagamento'].date().strftime('%d/%m/%Y')}`
-    """)
+    st.dataframe(df_para_exibir.sort_values("cliente_id"), use_container_width=True)
 
     st.divider()
 #----------------------------------------pergunta 4---------------------------------------------------#
-    st.header("4 Mostrando Clientes por Instrutor")
-    nome_instrutor = st.selectbox('Nome instrutor:', bk.df_instrutores['nome'])
-    df_filtro_intrutor = bk.clientes_instrutor(nome_instrutor)
-    st.dataframe(df_filtro_intrutor)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.header("4 Mostrando Clientes por Instrutor")
+        df_instrutores = bk.carregar_instrutores()
+        nome_instrutor = st.selectbox('Nome instrutor:', df_instrutores['nome'])
+        df_filtro_intrutor = bk.clientes_instrutor(nome_instrutor)
+        st.dataframe(df_filtro_intrutor)
+
+    with col2:
+        st.header("Distribuição de Clientes por Instrutor")
+
+        st.pyplot(bk.grafico_instrutores())
+
     st.divider()
-
-    st.header("Distribuição de Clientes por Instrutor")
-
-    df_instrutores = bk.clientes_por_instrutor_com_vazios() 
-
-    # Gráfico de pizza
-    # fig, ax = plt.subplots()
-    # ax.pie(df_instrutores['quantidade'], 
-    #    labels=df_instrutores['instrutor'], 
-    #    autopct='%1.1f%%', 
-    #    startangle=90, 
-    #    counterclock=False)
-    # ax.axis('equal')  # Mantém formato circular
-    # st.pyplot(fig)
-
-
-    # --- Carregar dados diretamente sem importar do services ---
-
-
 #----------------------------------------pergunta 5---------------------------------------------------#
     st.subheader("📊 5 Formulários")
     tabs = st.tabs([
@@ -111,13 +131,12 @@ def front_end():
             email = st.text_input("Email")
             telefone = st.text_input("Telefone")
             plano_option = st.selectbox("Plano", bk.df_planos['nome'].tolist())
-            instrutor_option = st.selectbox("Instrutor", bk.df_instrutores['nome'].tolist())
-            submit_cliente = st.form_submit_button("Registrar Cliente")
-            if submit_cliente:
-                novo_cliente = bk.novo_cliente(nome, idade, genero, email, telefone, plano_option, instrutor_option)
-                st.write(novo_cliente)
-                st.success("Cliente registrado com sucesso!")
-                st.balloons()
+            instrutor_option = st.selectbox("Instrutor", bk.carregar_instrutores()['nome'].tolist())
+            submit_cliente = st.form_submit_button("Registrar Cliente")    
+        if submit_cliente:
+            novo_cliente = bk.novo_cliente(nome, idade, genero, email, telefone, plano_option, instrutor_option)
+            st.write(novo_cliente)
+            st.success("Cliente registrado com sucesso!")
 
     with tabs[1]:
         st.subheader("Pagamentos")
@@ -128,7 +147,6 @@ def front_end():
             plano_pagamento = st.selectbox("Plano", bk.df_planos['nome'].tolist())
             data_pagamento = st.date_input("Data do Pagamento")
             submit_pagamento = st.form_submit_button("Registrar Pagamento")
-    
         if submit_pagamento:
             novo_pagamento = bk.novo_pagamento(cliente_pagamento, plano_pagamento, data_pagamento)
             st.write(novo_pagamento)
@@ -142,15 +160,14 @@ def front_end():
             cliente_treino = st.selectbox("Cliente", clientes_atualizados)
             data_treino = st.date_input("Data do Treino")
             submit_treino = st.form_submit_button("Registrar Treino")
-            if submit_treino:
-                novo_treino = bk.novo_treino(cliente_treino, data_treino)
-                st.write(novo_treino)
-                st.success("Treino registrado com sucesso!")
+        if submit_treino:
+            novo_treino = bk.novo_treino(cliente_treino, data_treino)
+            st.write(novo_treino)
+            st.success("Treino registrado com sucesso!")
 
     with tabs[3]:
         st.subheader("Exercícios")
         st.write("Aqui você pode cadastrar um novo exercício.")
-
         with st.form("form_novo_exercicio"):
             nome_exercicio = st.text_input("Nome do Exercício")
             grupo_muscular = st.selectbox("Grupo Muscular", [
@@ -166,37 +183,44 @@ def front_end():
             else:
                 st.error(resultado)
 
+st.divider()
+
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
 
-# Telas
 def tela_login():
-    st.title("Login / Registro")
+    # Define três colunas: col1 e col3 servem como margem, col2 conterá o formulário
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-    tab1, tab2 = st.tabs(["Login", "Registrar"])
+    with col2:  # todo o conteúdo ficará na coluna do meio, mais estreita
+        with st.container():
+            st.title("Login / Registro")
 
-    with tab1:
-        user = st.text_input("Usuário", key="login_user")
-        pwd = st.text_input("Senha", type="password", key="login_pwd")
-        if st.button("Entrar"):
-            if bk.verificar_usuario(user, pwd):
-                st.session_state.logged_in = True
-                st.session_state.username = user
-                st.success("Login bem-sucedido!")
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos.")
+            tab1, tab2 = st.tabs(["Login", "Registrar"])
 
-    with tab2:
-        new_user = st.text_input("Novo usuário", key="reg_user")
-        new_pwd = st.text_input("Nova senha", type="password", key="reg_pwd")
-        if st.button("Registrar"):
-            if bk.registrar_usuario(new_user, new_pwd):
-                st.success("Usuário registrado com sucesso!")
-            else:
-                st.error("Usuário já existe.")
+            with tab1:
+                user = st.text_input("Usuário", key="login_user")
+                pwd = st.text_input("Senha", type="password", key="login_pwd")
+                if st.button("Entrar"):
+                    if bk.verificar_usuario(user, pwd):
+                        st.session_state.logged_in = True
+                        st.session_state.username = user
+                        st.success("Login bem-sucedido!")
+                        st.rerun()
+                    else:
+                        st.error("Usuário ou senha incorretos.")
+
+            with tab2:
+                new_user = st.text_input("Novo usuário", key="reg_user")
+                new_pwd = st.text_input("Nova senha", type="password", key="reg_pwd")
+                if st.button("Registrar"):
+                    if bk.registrar_usuario(new_user, new_pwd):
+                        st.success("Usuário registrado com sucesso!")
+                    else:
+                        st.error("Usuário já existe.")
 
 # Controle de navegação
 if st.session_state.logged_in:

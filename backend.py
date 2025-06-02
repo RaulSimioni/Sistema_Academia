@@ -1,6 +1,8 @@
 import pandas as pd
 import sqlite3
 import hashlib
+import matplotlib.pyplot as plt
+from dateutil.relativedelta import relativedelta
 
 # 1) Conexão com o banco
 conn = sqlite3.connect('academia_db.db', check_same_thread=False)
@@ -230,6 +232,17 @@ def clientes_planos(nome_cliente):
     return df
 # pergunta 3 - Mostra total de pagamentos e o ultimo pagamento do cliente
 
+def get_connection():
+    return sqlite3.connect("academia_db.db")  # ajuste para seu caminho real
+
+# 🔄 NOVA FUNÇÃO: carrega os clientes diretamente do banco
+def carregar_clientes():
+    conn = get_connection()
+    df_clientes = pd.read_sql_query("SELECT id, nome FROM clientes", conn)
+    conn.close()
+    return df_clientes
+
+# ✅ Atualizada para usar diretamente do banco
 def listar_treinos_com_exercicios():
     conn = get_connection()
     query = """
@@ -253,15 +266,100 @@ def listar_treinos_com_exercicios():
     conn.close()
     return df
 
-def carregar_pagamentos(caminho_csv="pagamento_clientes.csv"):
-    return pd.read_csv(caminho_csv, parse_dates=["data_pagamento"])
+# Carrega pagamentos do CSV
+def carregar_pagamentos():
+    """
+    Agora carrega diretamente do banco SQLite, trazendo cliente_id, data_pagamento, valor_pago, plano_id.
+    """
+    conn = get_connection()
+    query = """
+        SELECT 
+            cliente_id,
+            date(data_pagamento) AS data_pagamento,
+            valor_pago,
+            plano_id
+        FROM pagamentos
+    """
+    df = pd.read_sql_query(query, conn, parse_dates=["data_pagamento"])
+    conn.close()
+    return df
 
-def calcular_resumo_pagamentos(df):
-    resumo = df.groupby("cliente_id").agg(
-        total_pago=("valor_pago", "sum"),
-        ultimo_pagamento=("data_pagamento", "max")
-    ).reset_index()
-    return resumo
+
+# Gera o resumo de pagamentos com os nomes dos clientes atualizados
+def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
+    """
+    Retorna um DataFrame que inclui todos os clientes, com:
+      - total_pago: soma dos valores (zero se não houver pagamento)
+      - ultimo_pagamento: data do último pagamento (NaT se não houver)
+    """
+    resumo_pag = (
+        df_pagamentos
+        .groupby("cliente_id")
+        .agg(
+            total_pago=("valor_pago", "sum"),
+            ultimo_pagamento=("data_pagamento", "max")
+        )
+        .reset_index()
+    )
+
+    df_clientes_renomeado = df_clientes.rename(
+        columns={"id": "cliente_id", "nome": "cliente_nome"}
+    )
+
+    df_resumo = df_clientes_renomeado.merge(
+        resumo_pag,
+        on="cliente_id",
+        how="left"
+    )
+
+    df_resumo["total_pago"] = df_resumo["total_pago"].fillna(0.0)
+    # 'ultimo_pagamento' permanece NaT caso não haja pagamento
+    return df_resumo
+
+# ➕ Integração no fluxo principal (exemplo de uso)
+# Isso aqui pode estar no seu front-end (Streamlit)
+df_pagamentos = carregar_pagamentos()
+df_clientes = carregar_clientes()  # <- agora sempre atualizado
+df_resumo = calcular_resumo_pagamentos(df_pagamentos, df_clientes)
+
+# def listar_treinos_com_exercicios():
+#     conn = get_connection()
+#     query = """
+#         SELECT 
+#             t.id AS Treino_ID,
+#             c.nome AS Cliente,
+#             i.nome AS Instrutor,
+#             t.data_inicio,
+#             t.data_fim,
+#             e.nome AS Exercicio,
+#             te.series,
+#             te.repeticoes
+#         FROM treinos t
+#         JOIN clientes c ON c.id = t.cliente_id
+#         JOIN instrutores i ON i.id = t.instrutor_id
+#         JOIN treino_exercicios te ON te.treino_id = t.id
+#         JOIN exercicios e ON e.id = te.exercicio_id
+#         ORDER BY c.nome, t.data_inicio
+#     """
+#     df = pd.read_sql_query(query, conn)
+#     conn.close()
+#     return df
+
+# def carregar_pagamentos(caminho_csv="pagamento_clientes.csv"):
+#     return pd.read_csv(caminho_csv, parse_dates=["data_pagamento"])
+
+# def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
+#     resumo = df_pagamentos.groupby("cliente_id").agg(
+#         total_pago=("valor_pago", "sum"),
+#         ultimo_pagamento=("data_pagamento", "max")
+#     ).reset_index()
+
+#     # Junta com nomes dos clientes
+#     resumo = resumo.merge(df_clientes[["id", "nome"]], left_on="cliente_id", right_on="id", how="left")
+#     resumo = resumo.rename(columns={"nome": "cliente_nome"})
+#     resumo = resumo.drop(columns=["id"])  # remove duplicado do cliente_id
+
+#     return resumo
 
 # pergunta 4 - Mostrar quantos clientes cada instrutor atende.  
 def get_connection():
@@ -270,12 +368,11 @@ def get_connection():
 def clientes_instrutor(instrutor):
     conn = get_connection()
     df_filtro_instrutor = pd.read_sql_query('''
-        SELECT i.nome AS Instrutor, COUNT(*) AS Quantidade_de_clientes
-        FROM treino_exercicios te
-        JOIN treinos t ON te.treino_id = t.id
-        JOIN instrutores i ON t.instrutor_id = i.id
-        WHERE i.nome = ?
-        GROUP BY i.nome
+        SELECT i.nome AS instrutor, COUNT(*) As Contagem
+            FROM clientes c
+            JOIN instrutores i ON c.instrutor_id = i.id
+            WHERE i.nome = ?    
+            GROUP BY i.nome
     ''', conn, params=(instrutor,))
     return df_filtro_instrutor
 
@@ -283,7 +380,7 @@ def clientes_instrutor(instrutor):
 def clientes_por_instrutor_com_vazios():
     conn = sqlite3.connect("academia_db.db", check_same_thread=False)
     query = '''
-        SELECT i.nome AS instrutor, COUNT(c.id) AS quantidade
+        SELECT i.nome AS instrutor, COUNT(*) AS quantidade
         FROM clientes c
         LEFT JOIN instrutores i ON c.instrutor_id = i.id
         GROUP BY i.nome
@@ -293,6 +390,39 @@ def clientes_por_instrutor_com_vazios():
     # Preenche valores nulos (clientes sem instrutor) com texto
     df["instrutor"] = df["instrutor"].fillna("Sem instrutor")
     return df
+
+df_instrutores = clientes_por_instrutor_com_vazios()
+
+def carregar_instrutores():
+    conn = get_connection()
+    query = "SELECT id, nome FROM instrutores"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+    
+def grafico_instrutores():
+    fig, ax = plt.subplots()
+    ax.pie(df_instrutores['quantidade'], 
+    labels=df_instrutores['instrutor'], 
+    autopct='%1.1f%%', 
+    startangle=90, 
+    counterclock=False)
+    ax.axis('equal')  # Mantém formato circular
+    fig.patch.set_facecolor('black')
+    ax.set_title("Distribuição de Clientes por Plano", color="white", fontsize=14, weight='bold')
+
+    ax.legend(
+        df_instrutores['instrutor'],  # Mesmo que o usado em labels
+        title="Instrutores",
+        loc="center left",
+        bbox_to_anchor=(1, 0, 0.5, 1),
+        facecolor='white',
+        labelcolor='black',
+        fontsize=10,
+        title_fontsize=12
+    )
+
+    return(fig)
 
 # pergunta 5 - Formulario Novo Cliente
 def novo_cliente(nome, idade, sexo, email, telefone, plano_nome, instrutor_nome):
@@ -352,8 +482,7 @@ def novo_treino(cliente_nome, data):
     plano_id = int(clientes[clientes['nome'] == cliente_nome]['plano_id'].values[0])
     
     duracao = int(planos[planos['id'] == plano_id]['duracao_meses'].values[0])
-    from datetime import date
-    from dateutil.relativedelta import relativedelta
+
     data_inicial = data
     data_final = data + relativedelta(months=duracao)
     cursor.execute(
@@ -406,3 +535,50 @@ def get_clientes():
     df = pd.read_sql_query("SELECT id, nome FROM clientes ORDER BY nome", conn)
     conn.close()
     return df
+
+def grafico_clientes_por_plano():
+    conn = get_connection()
+    query = '''
+        SELECT p.nome AS plano, COUNT(*) AS total
+        FROM clientes c
+        JOIN planos p ON c.plano_id = p.id
+        GROUP BY p.nome
+    '''
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    if df.empty:
+        return "Sem dados para exibir."
+
+    colors = ['limegreen', 'darkturquoise', 'navy']
+    explode = [0.02] * len(df)
+
+    fig, ax = plt.subplots(figsize=(6, 6), facecolor="black")
+    wedges, texts, autotexts = ax.pie(
+        df['total'],
+        labels=df['plano'],
+        autopct='%1.1f%%',
+        startangle=140,
+        colors=colors[:len(df)],
+        explode=explode,
+        textprops=dict(color="white", fontsize=12, weight='bold'),
+        pctdistance=0.50
+    )
+
+    ax.set_title("Distribuição de Clientes por Plano", color="white", fontsize=14, weight='bold')
+    ax.axis('equal')
+    fig.patch.set_facecolor('black')
+
+    ax.legend(
+        wedges,
+        df['plano'],
+        title="Planos",
+        loc="center left",
+        bbox_to_anchor=(1, 0, 0.5, 1),
+        facecolor='gray',
+        labelcolor='black',
+        fontsize=10,
+        title_fontsize=12
+    )
+
+    return fig
