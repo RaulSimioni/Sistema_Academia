@@ -3,6 +3,7 @@ import sqlite3
 import hashlib
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
+import datetime
 
 conn = sqlite3.connect('academia_db.db', check_same_thread=False)
 cursor = conn.cursor()
@@ -187,7 +188,7 @@ if not novos.empty:
     novos.to_sql('pagamentos', conn, if_exists='append', index=False)
     conn.commit()
 
-#----------------------------------------pergunta 1---------------------------------------------------#
+#----------------------------------------pergunta 1 e 2---------------------------------------------------#
 def clientes_planos(nome_plano):
     conn = sqlite3.connect('academia_db.db')
     query = '''
@@ -198,19 +199,6 @@ def clientes_planos(nome_plano):
         ORDER BY c.nome
     '''
     df = pd.read_sql_query(query, conn, params=(nome_plano,))
-    conn.close()
-    return df
-#----------------------------------------pergunta 2---------------------------------------------------#
-def clientes_planos(nome_cliente):
-    conn = sqlite3.connect('academia_db.db')
-    query = '''
-        SELECT c.nome AS Cliente, p.nome AS Plano
-        FROM clientes c
-        JOIN planos p ON c.plano_id = p.id
-        WHERE p.nome = ?
-        ORDER BY c.nome
-    '''
-    df = pd.read_sql_query(query, conn, params=(nome_cliente,))
     conn.close()
     return df
 #----------------------------------------pergunta 3---------------------------------------------------#
@@ -507,3 +495,49 @@ def grafico_clientes_por_plano():
     )
 
     return fig
+
+# ----------------------------------------KPI---------------------------------------------------#
+# 1) Conta quantos clientes existem na tabela
+def get_total_clientes():
+    conn = sqlite3.connect("academia_db.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM clientes")
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
+
+# 2) Conta quantos planos existem na tabela
+def get_total_planos():
+    conn = sqlite3.connect("academia_db.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM planos")
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
+
+# 3) Conta quantos registros de pagamento ocorreram no mês/ano atuais
+def get_total_pagamentos_mes():
+    # Reutiliza carregar_pagamentos() para ter o DataFrame com data_pagamento já em datetime
+    df_pag = carregar_pagamentos()  # retorna coluna data_pagamento como datetime
+    if df_pag.empty:
+        return 0
+
+    # Hoje (local da máquina onde roda o Streamlit)
+    hoje = pd.to_datetime(datetime.datetime.now())
+    # Filtra pelo mês e ano de hoje
+    filt = (
+        (df_pag["data_pagamento"].dt.month == hoje.month) &
+        (df_pag["data_pagamento"].dt.year  == hoje.year)
+    )
+    return int(df_pag.loc[filt].shape[0])
+
+# 4) Calcula a média de idade dos clientes
+def get_media_idade_clientes():
+    conn = sqlite3.connect("academia_db.db", check_same_thread=False)
+    # Só buscamos a coluna 'idade'
+    df_idade = pd.read_sql_query("SELECT idade FROM clientes", conn)
+    conn.close()
+
+    if df_idade.empty:
+        return 0.0
+    return float(df_idade["idade"].mean())

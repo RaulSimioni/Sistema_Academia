@@ -1,21 +1,25 @@
 import streamlit as st
 import pandas as pd
-import backend as bk    
+import backend as bk   
 
 st.set_page_config(page_title="Sistema de Academia Senai", layout="wide")
 
-def front_end():  
-
+def pagina_dashboard():
     st.title("💪 Sistema de Academia Senai")
     st.subheader(f"Bem-vindo {st.session_state.username} ao sistema de gestão de academia!")
 
-    if st.sidebar.button("Sair"):
-        st.session_state.logged_in = False
-        st.session_state.username = ""
-        st.rerun()
+    total_clientes      = bk.get_total_clientes()
+    total_planos        = bk.get_total_planos()
+    total_pagamentos    = bk.get_total_pagamentos_mes()
+    media_idade_clientes = bk.get_media_idade_clientes()
 
-    st.divider()
-#----------------------------------------pergunta 1---------------------------------------------------#
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Clientes Ativos", f"{total_clientes}")
+    col2.metric("Planos Ativos",   f"{total_planos}")
+    col3.metric("Pagamentos Neste Mês", f"{total_pagamentos}")
+    col4.metric("Média de Idade", f"{media_idade_clientes:.1f}")
+
+def pagina_clientes_por_plano():
     col1, col2 = st.columns(2)
     with col1:
         st.header("Mostrando Clientes por plano")
@@ -33,7 +37,7 @@ def front_end():
 
     st.divider()
 
-#----------------------------------------pergunta 2---------------------------------------------------#
+def pagina_treinos():
     st.subheader("Treinos")
     df_treinos_ex = bk.listar_treinos_com_exercicios()
 
@@ -50,8 +54,7 @@ def front_end():
 
         st.dataframe(df_filtrado, use_container_width=True)
 
-    st.divider()
-#----------------------------------------pergunta 3---------------------------------------------------#
+def pagina_pagamentos():
     df_pagamentos = bk.carregar_pagamentos()
     conn = bk.get_connection()
     df_clientes = bk.get_clientes()
@@ -86,26 +89,23 @@ def front_end():
         data_str = cliente["ultimo_pagamento"].date().strftime("%d/%m/%Y")
         col4.metric(label="Último Pagamento", value=data_str)
 
-    st.subheader("📋 3 Pagamentos por Cliente")
+    st.subheader("📋 Pagamentos por Cliente")
     st.dataframe(df_para_exibir.sort_values("cliente_id"), use_container_width=True)
 
-    st.divider()
-#----------------------------------------pergunta 4---------------------------------------------------#
+def pagina_instrutores():
     col1, col2 = st.columns(2)
     with col1:
         st.header("Mostrando Clientes por Instrutor")
         df_instrutores = bk.carregar_instrutores()
         nome_instrutor = st.selectbox('Nome instrutor:', df_instrutores['nome'])
-        df_filtro_intrutor = bk.clientes_instrutor(nome_instrutor)
-        st.dataframe(df_filtro_intrutor)
+        df_filtro_instrutor = bk.clientes_instrutor(nome_instrutor)
+        st.dataframe(df_filtro_instrutor)
 
     with col2:
         st.header("Distribuição de Clientes por Instrutor")
-
         st.pyplot(bk.grafico_instrutores())
 
-    st.divider()
-#----------------------------------------pergunta 5---------------------------------------------------#
+def pagina_formularios():
     st.subheader("📊 Formulários")
     tabs = st.tabs([
         "👤 Cliente",
@@ -176,10 +176,53 @@ def front_end():
             else:
                 st.error(resultado)
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
+def front_end():
+    st.sidebar.subheader(f"Olá {st.session_state.username}!")
+    st.sidebar.divider()
+
+    # Inicializa menu ativo na session_state
+    if "menu_ativo" not in st.session_state:
+        st.session_state.menu_ativo = "Dashboard"
+
+    # Botões do menu na sidebar
+    if st.sidebar.button("Dashboard"):
+        st.session_state.menu_ativo = "Dashboard"
+    if st.sidebar.button("Clientes por Plano"):
+        st.session_state.menu_ativo = "Clientes por Plano"
+    if st.sidebar.button("Treinos"):
+        st.session_state.menu_ativo = "Treinos"
+    if st.sidebar.button("Pagamentos"):
+        st.session_state.menu_ativo = "Pagamentos"
+    if st.sidebar.button("Clientes por Instrutor"):
+        st.session_state.menu_ativo = "Clientes por Instrutor"
+    if st.sidebar.button("Formulários"):
+        st.session_state.menu_ativo = "Formulários"
+
+    st.sidebar.divider()
+
+    # Botão Sair centralizado usando colunas na sidebar
+    col1, col2, col3 = st.sidebar.columns([1, 2, 1])
+    if col2.button("❌ Sair"):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.rerun()
+
+    # Renderiza a página selecionada
+    menu = st.session_state.menu_ativo
+
+    if menu == "Dashboard":
+        pagina_dashboard()
+    elif menu == "Clientes por Plano":
+        pagina_clientes_por_plano()
+    elif menu == "Treinos":
+        pagina_treinos()
+    elif menu == "Pagamentos":
+        pagina_pagamentos()
+    elif menu == "Clientes por Instrutor":
+        pagina_instrutores()
+    elif menu == "Formulários":
+        pagina_formularios()
+
 
 def tela_login():
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -210,6 +253,11 @@ def tela_login():
                         st.success("Usuário registrado com sucesso!")
                     else:
                         st.error("Usuário já existe.")
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
 if st.session_state.logged_in:
     front_end()
