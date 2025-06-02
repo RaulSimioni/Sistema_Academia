@@ -4,7 +4,6 @@ import hashlib
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 
-# 1) Conexão com o banco
 conn = sqlite3.connect('academia_db.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -116,6 +115,9 @@ df_treinos          = pd.read_csv('treinos.csv',             sep=',', encoding='
 df_treino_exercicios = pd.read_csv('treino_exercicios.csv', sep=',', encoding='utf-8')
 df_pagamentos       = pd.read_csv('pagamento_clientes.csv',  sep=',', encoding='utf-8')
 
+def get_connection():
+    return sqlite3.connect("academia_db.db", check_same_thread=False) 
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -134,51 +136,36 @@ def registrar_usuario(username, password):
     except sqlite3.IntegrityError:
         return False
 
-# 4) Função auxiliar para filtrar registros novos
 def filter_novos(df, cols, tabela):
-    """
-    Retorna apenas as linhas de df cujas colunas em `cols`
-    não estejam já presentes na tabela SQLite `tabela`.
-    """
-    # remove duplicados internos
     df = df.drop_duplicates(subset=cols, keep='first')
-    # lê valores existentes
     sel = ", ".join(cols)
     sql = f"SELECT {sel} FROM {tabela}"
     existentes = pd.read_sql_query(sql, conn)
-    # monta conjunto de tuplas existentes
     tuplas_exist = set(tuple(x) for x in existentes.values)
-    # filtra linhas cujo tuple(cols) NÃO está em existentes
     mask = ~df[cols].apply(lambda row: tuple(row), axis=1).isin(tuplas_exist)
     return df[mask]
 
 # 5) Inserção em cada tabela, só com novos
-
-# 5.1 clientes (chave natural = email)
 novos = filter_novos(df_clientes, ['email'], 'clientes')
 if not novos.empty:
     novos.to_sql('clientes', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.2 instrutores (nome + especialidade)
 novos = filter_novos(df_instrutores, ['nome','especialidade'], 'instrutores')
 if not novos.empty:
     novos.to_sql('instrutores', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.3 planos (nome + preco_mensal + duracao_meses)
 novos = filter_novos(df_planos, ['nome','preco_mensal','duracao_meses'], 'planos')
 if not novos.empty:
     novos.to_sql('planos', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.4 exercicios (nome + grupo_muscular)
 novos = filter_novos(df_exercicios, ['nome','grupo_muscular'], 'exercicios')
 if not novos.empty:
     novos.to_sql('exercicios', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.5 treinos (cliente_id, instrutor_id, data_inicio, data_fim, plano_id)
 novos = filter_novos(df_treinos,
                      ['cliente_id','instrutor_id','data_inicio','data_fim','plano_id'],
                      'treinos')
@@ -186,7 +173,6 @@ if not novos.empty:
     novos.to_sql('treinos', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.6 treino_exercicios (treino_id, exercicio_id, series, repeticoes)
 novos = filter_novos(df_treino_exercicios,
                      ['treino_id','exercicio_id','series','repeticoes'],
                      'treino_exercicios')
@@ -194,7 +180,6 @@ if not novos.empty:
     novos.to_sql('treino_exercicios', conn, if_exists='append', index=False)
     conn.commit()
 
-# 5.7 pagamentos (cliente_id, data_pagamento, valor_pago, plano_id)
 novos = filter_novos(df_pagamentos,
                      ['cliente_id','data_pagamento','valor_pago','plano_id'],
                      'pagamentos')
@@ -202,7 +187,7 @@ if not novos.empty:
     novos.to_sql('pagamentos', conn, if_exists='append', index=False)
     conn.commit()
 
-#pegunta 1
+#----------------------------------------pergunta 1---------------------------------------------------#
 def clientes_planos(nome_plano):
     conn = sqlite3.connect('academia_db.db')
     query = '''
@@ -215,9 +200,7 @@ def clientes_planos(nome_plano):
     df = pd.read_sql_query(query, conn, params=(nome_plano,))
     conn.close()
     return df
-
-# Pregunta 2 - Filtrar e mostrar treinos e seus exercícios.
-
+#----------------------------------------pergunta 2---------------------------------------------------#
 def clientes_planos(nome_cliente):
     conn = sqlite3.connect('academia_db.db')
     query = '''
@@ -230,19 +213,14 @@ def clientes_planos(nome_cliente):
     df = pd.read_sql_query(query, conn, params=(nome_cliente,))
     conn.close()
     return df
-# pergunta 3 - Mostra total de pagamentos e o ultimo pagamento do cliente
+#----------------------------------------pergunta 3---------------------------------------------------#
 
-def get_connection():
-    return sqlite3.connect("academia_db.db")  # ajuste para seu caminho real
-
-# 🔄 NOVA FUNÇÃO: carrega os clientes diretamente do banco
 def carregar_clientes():
     conn = get_connection()
     df_clientes = pd.read_sql_query("SELECT id, nome FROM clientes", conn)
     conn.close()
     return df_clientes
 
-# ✅ Atualizada para usar diretamente do banco
 def listar_treinos_com_exercicios():
     conn = get_connection()
     query = """
@@ -266,7 +244,6 @@ def listar_treinos_com_exercicios():
     conn.close()
     return df
 
-# Carrega pagamentos do CSV
 def carregar_pagamentos():
     """
     Agora carrega diretamente do banco SQLite, trazendo cliente_id, data_pagamento, valor_pago, plano_id.
@@ -285,7 +262,6 @@ def carregar_pagamentos():
     return df
 
 
-# Gera o resumo de pagamentos com os nomes dos clientes atualizados
 def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
     """
     Retorna um DataFrame que inclui todos os clientes, com:
@@ -313,58 +289,13 @@ def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
     )
 
     df_resumo["total_pago"] = df_resumo["total_pago"].fillna(0.0)
-    # 'ultimo_pagamento' permanece NaT caso não haja pagamento
     return df_resumo
 
-# ➕ Integração no fluxo principal (exemplo de uso)
-# Isso aqui pode estar no seu front-end (Streamlit)
 df_pagamentos = carregar_pagamentos()
-df_clientes = carregar_clientes()  # <- agora sempre atualizado
+df_clientes = carregar_clientes() 
 df_resumo = calcular_resumo_pagamentos(df_pagamentos, df_clientes)
 
-# def listar_treinos_com_exercicios():
-#     conn = get_connection()
-#     query = """
-#         SELECT 
-#             t.id AS Treino_ID,
-#             c.nome AS Cliente,
-#             i.nome AS Instrutor,
-#             t.data_inicio,
-#             t.data_fim,
-#             e.nome AS Exercicio,
-#             te.series,
-#             te.repeticoes
-#         FROM treinos t
-#         JOIN clientes c ON c.id = t.cliente_id
-#         JOIN instrutores i ON i.id = t.instrutor_id
-#         JOIN treino_exercicios te ON te.treino_id = t.id
-#         JOIN exercicios e ON e.id = te.exercicio_id
-#         ORDER BY c.nome, t.data_inicio
-#     """
-#     df = pd.read_sql_query(query, conn)
-#     conn.close()
-#     return df
-
-# def carregar_pagamentos(caminho_csv="pagamento_clientes.csv"):
-#     return pd.read_csv(caminho_csv, parse_dates=["data_pagamento"])
-
-# def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
-#     resumo = df_pagamentos.groupby("cliente_id").agg(
-#         total_pago=("valor_pago", "sum"),
-#         ultimo_pagamento=("data_pagamento", "max")
-#     ).reset_index()
-
-#     # Junta com nomes dos clientes
-#     resumo = resumo.merge(df_clientes[["id", "nome"]], left_on="cliente_id", right_on="id", how="left")
-#     resumo = resumo.rename(columns={"nome": "cliente_nome"})
-#     resumo = resumo.drop(columns=["id"])  # remove duplicado do cliente_id
-
-#     return resumo
-
-# pergunta 4 - Mostrar quantos clientes cada instrutor atende.  
-def get_connection():
-    return sqlite3.connect("academia_db.db", check_same_thread=False)
-
+#----------------------------------------pergunta 4---------------------------------------------------#
 def clientes_instrutor(instrutor):
     conn = get_connection()
     df_filtro_instrutor = pd.read_sql_query('''
@@ -376,7 +307,6 @@ def clientes_instrutor(instrutor):
     ''', conn, params=(instrutor,))
     return df_filtro_instrutor
 
-# pergunta 4 COMPLEMENTO
 def clientes_por_instrutor_com_vazios():
     conn = sqlite3.connect("academia_db.db", check_same_thread=False)
     query = '''
@@ -387,7 +317,6 @@ def clientes_por_instrutor_com_vazios():
     '''
     df = pd.read_sql_query(query, conn)
 
-    # Preenche valores nulos (clientes sem instrutor) com texto
     df["instrutor"] = df["instrutor"].fillna("Sem instrutor")
     return df
 
@@ -407,12 +336,12 @@ def grafico_instrutores():
     autopct='%1.1f%%', 
     startangle=90, 
     counterclock=False)
-    ax.axis('equal')  # Mantém formato circular
+    ax.axis('equal')  
     fig.patch.set_facecolor('black')
     ax.set_title("Distribuição de Clientes por Plano", color="white", fontsize=14, weight='bold')
 
     ax.legend(
-        df_instrutores['instrutor'],  # Mesmo que o usado em labels
+        df_instrutores['instrutor'], 
         title="Instrutores",
         loc="center left",
         bbox_to_anchor=(1, 0, 0.5, 1),
@@ -424,7 +353,7 @@ def grafico_instrutores():
 
     return(fig)
 
-# pergunta 5 - Formulario Novo Cliente
+#----------------------------------------pergunta 5---------------------------------------------------#
 def novo_cliente(nome, idade, sexo, email, telefone, plano_nome, instrutor_nome):
     conn = get_connection()
     cursor = conn.cursor()
@@ -447,7 +376,6 @@ def novo_cliente(nome, idade, sexo, email, telefone, plano_nome, instrutor_nome)
 def get_conn():
     return sqlite3.connect('academia_db.db')
 
-# pergunta 5 - Formulario Novo Pagamento
 def novo_pagamento(cliente_nome, plano_nome, data):
     conn = get_connection()
     cursor = conn.cursor()
@@ -469,7 +397,6 @@ def novo_pagamento(cliente_nome, plano_nome, data):
 
     return f"Pagamento do cliente {cliente_nome} inserido com sucesso! Valor: {valor_plano} | Data:{data_pagamento}"
 
-# pergunta 5 - Formulario Novo Treino
 def novo_treino(cliente_nome, data):
     conn = get_connection()
     cursor = conn.cursor()
@@ -494,7 +421,6 @@ def novo_treino(cliente_nome, data):
 
     return f"Treino do cliente {cliente_nome} inserido com sucesso! Data inicial: {data_inicial} | Data final:{data_final}"
 
-# pergunta 5 - Formulario Novo Exercício
 def novo_exercicio(nome_exercicio, grupo_muscular):
     conn = get_connection()
     cursor = conn.cursor()
@@ -510,7 +436,6 @@ def novo_exercicio(nome_exercicio, grupo_muscular):
     conn.close()
     return message
 
-# pergunta 5 - Formulario Novo Treino Exercício
 def novo_treino_exercicio(treino_data, tipo_treino, exercicio_nome, series, repeticoes):
     conn = get_connection()
     cursor = conn.cursor()

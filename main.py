@@ -4,12 +4,10 @@ import backend as bk
 
 st.set_page_config(page_title="Sistema de Academia Senai", layout="wide")
 
-
 def front_end():  
 
     st.title("💪 Sistema de Academia Senai")
     st.subheader(f"Bem-vindo {st.session_state.username} ao sistema de gestão de academia!")
-    # - **Cliente ID:** `{cliente_id}`
 
     if st.sidebar.button("Sair"):
         st.session_state.logged_in = False
@@ -36,7 +34,7 @@ def front_end():
     st.divider()
 
 #----------------------------------------pergunta 2---------------------------------------------------#
-    st.subheader("2 Treinos")
+    st.subheader("Treinos")
     df_treinos_ex = bk.listar_treinos_com_exercicios()
 
     if df_treinos_ex.empty:
@@ -54,7 +52,6 @@ def front_end():
 
     st.divider()
 #----------------------------------------pergunta 3---------------------------------------------------#
-   # --- Execução ---
     df_pagamentos = bk.carregar_pagamentos()
     conn = bk.get_connection()
     df_clientes = bk.get_clientes()
@@ -62,8 +59,6 @@ def front_end():
 
     df_resumo = bk.calcular_resumo_pagamentos(df_pagamentos, df_clientes)
 
-    # Converte 'ultimo_pagamento' para string apenas com data (DD/MM/YYYY),
-    # preenchendo com texto vazio se for NaT
     df_para_exibir = df_resumo.copy()
     df_para_exibir["ultimo_pagamento"] = (
         df_para_exibir["ultimo_pagamento"]
@@ -73,7 +68,6 @@ def front_end():
 
     st.subheader("🔍 Filtrar por Cliente")
 
-    # Selectbox com nome visível, mas retorna o ID
     cliente_id = st.selectbox(
         "Selecione o Cliente",
         df_resumo["cliente_id"],
@@ -92,7 +86,6 @@ def front_end():
         data_str = cliente["ultimo_pagamento"].date().strftime("%d/%m/%Y")
         col4.metric(label="Último Pagamento", value=data_str)
 
-    # --- Exibição ---
     st.subheader("📋 3 Pagamentos por Cliente")
     st.dataframe(df_para_exibir.sort_values("cliente_id"), use_container_width=True)
 
@@ -100,7 +93,7 @@ def front_end():
 #----------------------------------------pergunta 4---------------------------------------------------#
     col1, col2 = st.columns(2)
     with col1:
-        st.header("4 Mostrando Clientes por Instrutor")
+        st.header("Mostrando Clientes por Instrutor")
         df_instrutores = bk.carregar_instrutores()
         nome_instrutor = st.selectbox('Nome instrutor:', df_instrutores['nome'])
         df_filtro_intrutor = bk.clientes_instrutor(nome_instrutor)
@@ -113,7 +106,7 @@ def front_end():
 
     st.divider()
 #----------------------------------------pergunta 5---------------------------------------------------#
-    st.subheader("📊 5 Formulários")
+    st.subheader("📊 Formulários")
     tabs = st.tabs([
         "👤 Cliente",
         "💰 Pagamentos",
@@ -183,19 +176,15 @@ def front_end():
             else:
                 st.error(resultado)
 
-st.divider()
-
-
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
 
 def tela_login():
-    # Define três colunas: col1 e col3 servem como margem, col2 conterá o formulário
     col1, col2, col3 = st.columns([1, 2, 1])
 
-    with col2:  # todo o conteúdo ficará na coluna do meio, mais estreita
+    with col2: 
         with st.container():
             st.title("Login / Registro")
 
@@ -222,7 +211,6 @@ def tela_login():
                     else:
                         st.error("Usuário já existe.")
 
-# Controle de navegação
 if st.session_state.logged_in:
     front_end()
 else:
