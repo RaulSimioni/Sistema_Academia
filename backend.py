@@ -10,6 +10,8 @@ conn = sqlite3.connect('academia_db.db', check_same_thread=False)
 cursor = conn.cursor()
 
 # 2) Criação das tabelas
+
+# Cria a tabela de clientes, com referências a plano, instrutor e treino
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS clientes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,6 +111,7 @@ cursor.execute('''
 conn.commit()
 
 # 3) Carregando os CSVs
+# Dados dos arquivos 
 df_clientes         = pd.read_csv('clientes_academia.csv',    sep=',', encoding='utf-8')
 df_instrutores      = pd.read_csv('instrutores.csv',         sep=',', encoding='utf-8')
 df_exercicios       = pd.read_csv('exercicios.csv',          sep=',', encoding='utf-8')
@@ -123,92 +126,115 @@ def get_connection():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+
+# Função para verificar se o usuário e a senha estão corretos
 def verificar_usuario(username, password):
     cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
     result = cursor.fetchone()
     if result:
+        # Compara a senha armazenada (em hash) com o hash da senha fornecida
         return result[0] == hash_password(password)
     return False
 
 def registrar_usuario(username, password):
     try:
+        # Insere o usuário com a senha criptografada no banco
         cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password)))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
+        # Caso o usuário já exista ou ocorra algum erro de integridade, retorna False
         return False
 
+# Função que filtra os registros novos (não repetidos) que ainda não existem na tabela do banco
 def filter_novos(df, cols, tabela):
+    # Remove duplicatas no DataFrame com base nas colunas informadas
     df = df.drop_duplicates(subset=cols, keep='first')
     sel = ", ".join(cols)
     sql = f"SELECT {sel} FROM {tabela}"
     existentes = pd.read_sql_query(sql, conn)
+    # Converte os registros em tuplas
     tuplas_exist = set(tuple(x) for x in existentes.values)
+    # Cria uma máscara para filtrar apenas os registros que ainda não existem no banco
     mask = ~df[cols].apply(lambda row: tuple(row), axis=1).isin(tuplas_exist)
     return df[mask]
 
 # 5) Inserção em cada tabela, só com novos
+# Verifica se há novos clientes (baseado no campo 'email') que ainda não estão na tabela 'clientes'
 novos = filter_novos(df_clientes, ['email'], 'clientes')
 if not novos.empty:
+    # Se existirem novos, insere na tabela 'clientes'
     novos.to_sql('clientes', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há novos instrutores (comparando 'nome' e 'especialidade')
 novos = filter_novos(df_instrutores, ['nome','especialidade'], 'instrutores')
 if not novos.empty:
+    # Se existirem novos, insere na tabela 'instrutores'
     novos.to_sql('instrutores', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há novos planos (comparando nome, preço e duração)
 novos = filter_novos(df_planos, ['nome','preco_mensal','duracao_meses'], 'planos')
 if not novos.empty:
+    # Insere os planos que ainda não estão registrados no banco
     novos.to_sql('planos', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há novos exercícios (comparando nome e grupo muscular)
 novos = filter_novos(df_exercicios, ['nome','grupo_muscular'], 'exercicios')
 if not novos.empty:
+    # Insere os exercícios novos
     novos.to_sql('exercicios', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há treinos novos (comparando cliente, instrutor, data, e plano)
 novos = filter_novos(df_treinos,
                      ['cliente_id','instrutor_id','data_inicio','data_fim','plano_id'],
                      'treinos')
 if not novos.empty:
+    # Verifica se há treinos novos (comparando cliente, instrutor, data, e plano)
     novos.to_sql('treinos', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há novos exercícios vinculados a treinos (por treino, exercício, série e repetições)
 novos = filter_novos(df_treino_exercicios,
                      ['treino_id','exercicio_id','series','repeticoes'],
                      'treino_exercicios')
 if not novos.empty:
+    # Insere os novos vínculos de exercícios com treinos
     novos.to_sql('treino_exercicios', conn, if_exists='append', index=False)
     conn.commit()
 
+# Verifica se há novos pagamentos (por cliente, data, valor e plano)
 novos = filter_novos(df_pagamentos,
                      ['cliente_id','data_pagamento','valor_pago','plano_id'],
                      'pagamentos')
 if not novos.empty:
+    # Insere os pagamentos que ainda não estão no banco
     novos.to_sql('pagamentos', conn, if_exists='append', index=False)
     conn.commit()
 
 #----------------------------------------pergunta 1 e 2---------------------------------------------------#
 def clientes_planos(nome_plano):
-    conn = sqlite3.connect('academia_db.db')
+    conn = sqlite3.connect('academia_db.db') #Estabelece uma conexão direta com o banco de dados
     query = '''
         SELECT c.nome AS Cliente, p.nome AS Plano
         FROM clientes c
         JOIN planos p ON c.plano_id = p.id
-        WHERE p.nome = ?
+        WHERE p.nome = ?  
         ORDER BY c.nome
     '''
-    df = pd.read_sql_query(query, conn, params=(nome_plano,))
+    df = pd.read_sql_query(query, conn, params=(nome_plano,)) #Executa a consulta pelo valor passado na variável
     conn.close()
     return df
 #----------------------------------------pergunta 3---------------------------------------------------#
 
 def carregar_clientes():
-    conn = get_connection()
-    df_clientes = pd.read_sql_query("SELECT id, nome FROM clientes", conn)
-    conn.close()
-    return df_clientes
+    conn = get_connection()  # Abre conexão com o banco de dados
+    df_clientes = pd.read_sql_query("SELECT id, nome FROM clientes", conn)  # Lê os dados de clientes (id e nome)
+    conn.close() # Fecha a conexão.
+    return df_clientes  # Retorna um DataFrame com os clientes
 
 def listar_treinos_com_exercicios():
     conn = get_connection()
@@ -217,9 +243,10 @@ def listar_treinos_com_exercicios():
             t.id AS Treino_ID,
             c.nome AS Cliente,
             i.nome AS Instrutor,
-            t.data_inicio,
-            t.data_fim,
+            date(t.data_inicio) AS data_inicio,
+            date(t.data_fim)   AS data_fim,
             e.nome AS Exercicio,
+            e.grupo_muscular AS Grupo_Muscular,
             te.series,
             te.repeticoes
         FROM treinos t
@@ -229,7 +256,7 @@ def listar_treinos_com_exercicios():
         JOIN exercicios e ON e.id = te.exercicio_id
         ORDER BY c.nome, t.data_inicio
     """
-    df = pd.read_sql_query(query, conn)
+    df = pd.read_sql_query(query, conn, parse_dates=["data_inicio", "data_fim"])
     conn.close()
     return df
 
@@ -246,7 +273,7 @@ def carregar_pagamentos():
             plano_id
         FROM pagamentos
     """
-    df = pd.read_sql_query(query, conn, parse_dates=["data_pagamento"])
+    df = pd.read_sql_query(query, conn, parse_dates=["data_pagamento"])  # Converte a coluna data_pagamento para datetime
     conn.close()
     return df
 
@@ -277,16 +304,16 @@ def calcular_resumo_pagamentos(df_pagamentos, df_clientes):
         how="left"
     )
 
-    df_resumo["total_pago"] = df_resumo["total_pago"].fillna(0.0)
+    df_resumo["total_pago"] = df_resumo["total_pago"].fillna(0.0)  # Clientes sem pagamento ficam com total 0
     return df_resumo
 
-df_pagamentos = carregar_pagamentos()
-df_clientes = carregar_clientes() 
-df_resumo = calcular_resumo_pagamentos(df_pagamentos, df_clientes)
+df_pagamentos = carregar_pagamentos() # Carrega os pagamentos da base de dados
+df_clientes = carregar_clientes()  # Carrega os clientes da base de dados
+df_resumo = calcular_resumo_pagamentos(df_pagamentos, df_clientes) # Gera o resumo de pagamentos
 
 df_pagamentos = carregar_pagamentos()
 
-# Adiciona coluna de "Ano-Mês"
+# Adiciona coluna de "Ano_Mês"
 df_pagamentos["ano_mes"] = df_pagamentos["data_pagamento"].dt.to_period("M")
 
 # Agrupa por "ano_mes" e soma os pagamentos
@@ -301,7 +328,7 @@ df_pagamentos_por_mes["ano_mes"] = df_pagamentos_por_mes["ano_mes"].astype(str)
 
 def grafico_pagamentos():
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(df_pagamentos_por_mes["ano_mes"], df_pagamentos_por_mes["valor_pago"], color="skyblue")
+    ax.bar(df_pagamentos_por_mes["ano_mes"], df_pagamentos_por_mes["valor_pago"], color="#9fc131")
     ax.set_xlabel("Mês")
     ax.set_ylabel("Total Pago (R$)")
     ax.set_title("Total de Pagamentos por Mês")
@@ -310,7 +337,7 @@ def grafico_pagamentos():
 
 #----------------------------------------pergunta 4---------------------------------------------------#
 def clientes_instrutor(instrutor):
-    conn = get_connection()
+    conn = get_connection()  # Abre conexão com o banco
     df_filtro_instrutor = pd.read_sql_query('''
         SELECT i.nome AS instrutor, COUNT(*) As Contagem
             FROM clientes c
@@ -318,10 +345,10 @@ def clientes_instrutor(instrutor):
             WHERE i.nome = ?    
             GROUP BY i.nome
     ''', conn, params=(instrutor,))
-    return df_filtro_instrutor
+    return df_filtro_instrutor  # Retorna os dados como um DataFrame
 
 def clientes_por_instrutor_com_vazios():
-    conn = sqlite3.connect("academia_db.db", check_same_thread=False)
+    conn = sqlite3.connect("academia_db.db", check_same_thread=False)   # Abre conexão com o banco
     query = '''
         SELECT i.nome AS instrutor, COUNT(*) AS quantidade
         FROM clientes c
@@ -356,7 +383,7 @@ def grafico_instrutores():
     if df_instrutores.empty:
         return "Sem dados para exibir."
 
-    colors = ['#042940', '#005C53', '#9FC131']
+    colors = ['#042940', '#005C53', '#9FC131'] #Cores padrão do grafico
     explode = [0.02] * len(df_instrutores)
 
    
@@ -373,8 +400,8 @@ def grafico_instrutores():
         pctdistance=0.50
     )
     ax.set_title("Distribuição de Clientes por Instrutor", color="white", fontsize=14, weight='bold')
-    ax.axis('equal')
-    fig.patch.set_facecolor('black')
+    ax.axis('equal')  # Deixa o gráfico como círculo
+    fig.patch.set_facecolor('black')   # Define a cor do fundo
 
 
     ax.legend(
@@ -560,16 +587,20 @@ def novo_exercicio(nome_exercicio, grupo_muscular):
     return message
 
 
+# Função para inserir um novo exercício em um treino específico
 def novo_treino_exercicio(treino_data, tipo_treino, exercicio_nome, series, repeticoes):
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Carrega todos os treinos e exercícios para localizar os IDs com base nas informações fornecidas
     treinos = pd.read_sql_query ("SELECT id, data_inicio FROM treinos", conn)
     exercicios = pd.read_sql_query ("SELECT id, nome FROM exercicios", conn)
 
+    # Encontra o ID do treino a partir da data
     treino_id = int(treinos[treinos['data_inicio'] == treino_data]['id'].values[0])
     exercicio_id = int(exercicios[exercicios['nome'] == exercicio_nome]['id'].values[0])
 
+    # Insere o novo registro na tabela treino_exercicios
     cursor.execute(
         "INSERT INTO treino_exercicios (treino_id,treino,exercicio_id,exercicio,series,repeticoes) VALUES (?, ?, ?, ?, ?, ?)",
         (treino_id, tipo_treino, exercicio_id, exercicio_nome, series, repeticoes)
@@ -585,45 +616,50 @@ def get_clientes():
     conn.close()
     return df
 
+# Gera gráfico de pizza com a distribuição de tipos de treino entre os clientes
 def grafico_treinos_por_cliente():
     conn = get_connection()
-    query = '''
-        SELECT c.nome AS Cliente, te.treino AS Tipo
-        FROM clientes c
-        JOIN treino_exercicios te ON c.treino_id = te.treino_id
-    '''
+    query = """
+        SELECT 
+            e.grupo_muscular AS Grupo_Muscular,
+            COUNT(*)            AS quantidade
+        FROM treino_exercicios te
+        JOIN exercicios e ON te.exercicio_id = e.id
+        GROUP BY e.grupo_muscular
+    """
     df = pd.read_sql_query(query, conn)
     conn.close()
 
-    contagens = df['Tipo'].value_counts()
-    tipo_order = ['a', 'b', 'c', 'd']
-    labels = tipo_order
-    sizes = [contagens.get(t, 0) for t in tipo_order]
+    if df.empty:
+        return "Sem dados para exibir."
 
-    default_color_list = ['#042940', '#005C53', '#9FC131', '#D6D58E']
-    colors = default_color_list[:len(sizes)]
-    explode = [0.02] * len(sizes)
+    # Prepara labels e tamanhos
+    labels = df['Grupo_Muscular']
+    sizes  = df['quantidade']
 
+    # Define as cores desejadas
+    colors = ['#4B368A','#042940', '#005C53', '#9FC131', '#D6D58E', '#70B328']
+
+    # Criação do gráfico de pizza (pie) com fundo preto
     fig, ax = plt.subplots(figsize=(6, 6), facecolor="black")
     wedges, texts, autotexts = ax.pie(
         sizes,
         labels=labels,
+        colors=colors[:len(sizes)],     # ← aplica as cores aqui
         autopct='%1.1f%%',
         startangle=140,
-        colors=colors,
-        explode=explode,
+        explode=[0.02] * len(sizes),
         textprops=dict(color="white", fontsize=12, weight='bold'),
         pctdistance=0.50
     )
-
-    ax.axis('equal')
+    ax.axis('equal')  # Garante que fique circular
     fig.patch.set_facecolor('black')
 
     ax.legend(
         wedges,
         labels,
-        title="Tipo Treino",
-        loc="center left",
+        title="Grupo Muscular",
+        loc="center right",
         bbox_to_anchor=(1, 0, 0.5, 1),
         facecolor='gray',
         labelcolor='black',
@@ -634,7 +670,7 @@ def grafico_treinos_por_cliente():
     return fig
 
 
-
+# Gera gráfico de pizza com a quantidade de clientes por plano
 def grafico_clientes_por_plano():
     conn = get_connection()
     query = '''
@@ -649,6 +685,7 @@ def grafico_clientes_por_plano():
     if df.empty:
         return "Sem dados para exibir."
 
+    # Cores e proporções
     colors = ['#042940', '#005C53', '#9FC131', '#D6D58E']
     explode = [0.02] * len(df)
 
@@ -681,6 +718,7 @@ def grafico_clientes_por_plano():
 
     return fig
 
+# Retorna os treinos de um cliente específico com nome informado
 def get_treinos_por_cliente(nome_cliente):
     """
     Retorna um DataFrame com as colunas [id, data_inicio] 
@@ -753,6 +791,7 @@ def adicionar_exercicio_treino(treino_id, nome_exercicio, series, repeticoes):
         conn.close()
 
 # ----------------------------------------KPI EXISTENTES---------------------------------------------------
+# Retorna o total de clientes cadastrados no banco
 def get_total_clientes():
     conn = sqlite3.connect("academia_db.db", check_same_thread=False)
     cursor = conn.cursor()
@@ -761,6 +800,7 @@ def get_total_clientes():
     conn.close()
     return total
 
+# Retorna o total de planos disponíveis no sistema
 def get_total_planos():
     conn = sqlite3.connect("academia_db.db", check_same_thread=False)
     cursor = conn.cursor()
@@ -769,17 +809,21 @@ def get_total_planos():
     conn.close()
     return total
 
+# Retorna o total de pagamentos realizados no mês atual
 def get_total_pagamentos_mes():
     df_pag = carregar_pagamentos()
     if df_pag.empty:
         return 0
     hoje = pd.to_datetime(datetime.datetime.now())
+    
+    # Filtra os pagamentos do mês e ano atuais
     filt = (
         (df_pag["data_pagamento"].dt.month == hoje.month) &
         (df_pag["data_pagamento"].dt.year  == hoje.year)
     )
     return int(df_pag.loc[filt].shape[0])
 
+# Calcula a média
 def get_media_idade_clientes():
     conn = sqlite3.connect("academia_db.db", check_same_thread=False)
     df_idade = pd.read_sql_query("SELECT idade FROM clientes", conn)
@@ -788,6 +832,7 @@ def get_media_idade_clientes():
         return 0.0
     return float(df_idade["idade"].mean())
 
+# Retorna o número de clientes ativos
 def get_clientes_ativos():
     """
     Conta quantos clientes têm pelo menos um treino cujo data_fim >= hoje.
@@ -803,6 +848,7 @@ def get_clientes_ativos():
     conn.close()
     return total
 
+# Retorna a receita total recebida no mês atual
 def get_receita_mes_atual():
     """
     Soma todos os valores_pago de pagamentos cujo data_pagamento está no mês/ano atuais.
@@ -820,6 +866,7 @@ def get_receita_mes_atual():
     conn.close()
     return float(total)
 
+# Retorna o número de novos clientes nos últimos 30 dias
 def get_novos_clientes_30dias():
     """
     Conta quantos clientes iniciaram treino nos últimos 30 dias
@@ -836,6 +883,7 @@ def get_novos_clientes_30dias():
     conn.close()
     return total
 
+# Retorna o plano com maior número de clientes (top 1)
 def get_top1_plano():
     """
     Retorna uma lista contendo exatamente um tupla: (nome_do_plano, qtd_clientes).
